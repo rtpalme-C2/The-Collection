@@ -1105,7 +1105,14 @@ const LS_SHA      = 'tc_gh_sha';
 const LS_DATA_KEY = 'tc-v1';
 
 // ── Data version contract ─────────────────────────────────────────
-// Bump DATA_VERSION when schema changes make old data incompatible.
+// DATA_VERSION says which schema a file was written with. It is NEVER used to discard data
+// (DESIGN_SYSTEM.md sections 26 and 28):
+//   • file OLDER than the app  → migrate forward (migrateItems), then save it back
+//   • file EQUAL               → use it (migrations still run; they are idempotent)
+//   • file NEWER than the app  → load read-only, never overwrite it
+//   • "no data" means only: file empty, or its items array is empty
+// Migrate a changed field with a per-record, idempotent migration in migrateItems().
+// Do NOT bump DATA_VERSION to migrate a field; keep old keys for one release.
 const DATA_VERSION = 1;
 
 let lastKnownCount = 0;  // item count last read from, or saved to, GitHub (used by the save guard)
@@ -1113,7 +1120,12 @@ let saveTimer   = null;
 let pendingSave = false;
 let remoteReady  = false;  // true once the remote file has been read (or confirmed missing/empty)
 let localTrusted = false;  // true when this device started with real cached data (not seed/empty)
-function pushAllowed() { return remoteReady || localTrusted; }
+let dataLocked   = false;  // true when the data file is newer than this app: read-only, never overwritten
+function pushAllowed() { return !dataLocked && (remoteReady || localTrusted); }
+function lockedNotice(msg) {
+  setSyncStatus('error', 'Read-only — ' + msg);
+  showToast('Read-only: ' + msg + '. Reload with the latest app version.', true);
+}
 function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1209,9 +1221,21 @@ async function syncFromGitHub() {
     if (text && text.trim().startsWith('{')) {
       const parsed = JSON.parse(text);
       remoteReady = true;
-      const hasData = parsed && parsed._version === DATA_VERSION &&
-        Array.isArray(parsed.items) && parsed.items.length > 0;
-      if (hasData) {
+      if (!parsed || !Array.isArray(parsed.items)) {
+        // A non-empty file we don't recognise is never overwritten.
+        dataLocked = true;
+        lockedNotice('data file format not recognised');
+        return;
+      }
+      if (Number(parsed._version) > DATA_VERSION && parsed.items.length > 0) {
+        items = parsed.items;
+        lastKnownCount = items.length;
+        dataLocked = true;
+        render();
+        lockedNotice('data file is from a newer app version');
+        return;
+      }
+      if (parsed.items.length > 0) {
         items = parsed.items;
         lastKnownCount = items.length;
         const migrated = migrateItems();
@@ -1309,11 +1333,13 @@ async function saveToGitHub() {
 }
 
 function persist() {
+  if (dataLocked) return;
   try { localStorage.setItem(LS_DATA_KEY, JSON.stringify({ _version: DATA_VERSION, items })); }
   catch(e) {}
 }
 
 function scheduleSave() {
+  if (dataLocked) { lockedNotice('data file is from a newer app version'); return; }
   persist();
   if (!configOk()) return;
   if (!pushAllowed()) { setSyncStatus('error', 'Not synced yet — changes kept locally'); return; }
@@ -1361,16 +1387,16 @@ function loadLocal(){
     const raw = localStorage.getItem(LS_DATA_KEY);
     if(raw){
       const parsed = JSON.parse(raw);
-      if (parsed && parsed._version === DATA_VERSION) {
-        items = parsed.items || [];
-      } else if (parsed && parsed.items) {
-        items = parsed.items || [];
+      if (parsed && Array.isArray(parsed.items)) {
+        items = parsed.items;
+        if (Number(parsed._version) > DATA_VERSION) dataLocked = true;   // newer than this app: read-only
       }
     }
   }catch(e){ items = []; }
 }
 
 function saveLocal(){
+  if (dataLocked) return;
   localStorage.setItem(LS_DATA_KEY, JSON.stringify({_version: DATA_VERSION, items}));
 }
 
@@ -2230,11 +2256,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   loadLocal();
-  if (migrateItems()) saveLocal();
+  if (!dataLocked && migrateItems()) saveLocal();
   localTrusted = items.length > 0;
   lastKnownCount = items.length;
   render();
   updateSetupBanner();
+  if (dataLocked) lockedNotice('data file is from a newer app version');
 
   document.getElementById('btn-add').addEventListener('click', () => openModal(null));
   document.getElementById('modal-close').addEventListener('click', closeModal);
