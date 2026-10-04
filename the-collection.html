@@ -656,6 +656,7 @@ body.view-mode .toolbar{justify-content:flex-start}
 /* ── NEW STATUSES / TYPE BADGE ── */
 .status-stash{background:rgba(245,242,236,.14);color:#F5F2EC;border:1px solid rgba(245,242,236,.35)}
 .status-wishlist{background:transparent;color:var(--mh-rose);border:1px dashed rgba(220,201,166,.65)}
+.status-returned{background:rgba(160,150,175,.18);color:#C4BBD3;border:1px solid rgba(160,150,175,.4)}
 .type-badge{background:rgba(245,242,236,.1);color:rgba(245,242,236,.85);border:1px solid rgba(245,242,236,.22)}
 
 /* ── LANDING LAYOUT: compact header, tabs, filters popover ── */
@@ -789,6 +790,8 @@ body.view-mode .sort-wrap,body.view-mode .chips,body.view-mode .results-note{dis
         <select class="filter-select" id="filter-status"><option value="">All</option><option value="draft">Draft</option><option value="active">Active</option><option value="hold">Hold / Pending</option></select></div>
       <div class="fr" id="fr-channel"><label>Channel</label>
         <select class="filter-select" id="filter-channel"><option value="">All channels</option><option value="Facebook">Facebook</option><option value="1stDibs">1stDibs</option><option value="eBay">eBay</option><option value="Vestiaire">Vestiaire</option><option value="Madison Ave Couture">Madison Ave Couture</option><option value="Other">Other</option></select></div>
+      <div class="fr" id="fr-returnreason"><label>Return reason</label>
+        <select class="filter-select" id="filter-returnreason"></select></div>
       <div class="fr" id="fr-ptype"><label>Bought</label>
         <select class="filter-select" id="filter-ptype"><option value="">All</option><option value="new">New</option><option value="preowned">Pre-Owned</option></select></div>
       <div class="fr" id="fr-condition"><label>Condition</label>
@@ -851,6 +854,7 @@ body.view-mode .sort-wrap,body.view-mode .chips,body.view-mode .results-note{dis
               <option value="hold">Hold / Pending</option>
               <option value="sold">Sold</option>
               <option value="stash">Collection</option>
+              <option value="returned">Returned</option>
               <option value="wishlist">Wishlist</option>
             </select>
           </div>
@@ -861,6 +865,25 @@ body.view-mode .sort-wrap,body.view-mode .chips,body.view-mode .results-note{dis
               <option value="new">New</option>
               <option value="preowned">Pre-Owned</option>
             </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Return (only when Status = Returned) -->
+      <div class="form-section sf-return" style="display:none">
+        <div class="form-section-label">Return</div>
+        <div class="form-grid">
+          <div class="form-field">
+            <label>Return Reason</label>
+            <select id="f-return-reason"></select>
+          </div>
+          <div class="form-field">
+            <label>Date Returned</label>
+            <input type="date" id="f-return-date">
+          </div>
+          <div class="form-field" style="grid-column:1/-1">
+            <label>Return Notes</label>
+            <input type="text" id="f-return-notes" placeholder="Detail, who you dealt with">
           </div>
         </div>
       </div>
@@ -1389,10 +1412,13 @@ let pendingImages = [];
 let filterChannel = '';
 let filterPType = '';
 let filterCategory = '';
+let filterReturnReason = '';
+// Closed list: drives the form dropdown, the filter and the card tag.
+const RETURN_REASONS = ['Condition not as described', 'Authenticity concern', 'Color/finish not as expected', 'Size/proportions', 'Hardware', "Didn't suit my needs", 'Changed my mind', 'Other'];
 
 // ── TABS ───────────────────────────────────────────────────────────────────
 const TAB_DEFS = [
-  { id:'collection', label:'Collection', statuses:['stash'],                 newStatus:'stash',
+  { id:'collection', label:'Collection', statuses:['stash','returned'],       newStatus:'stash',
     empty:['Your collection is empty', 'Tap + Add Item to add a piece you own and keep.'] },
   { id:'wishlist',   label:'Wishlist',   statuses:['wishlist'],              newStatus:'wishlist',
     empty:['Your wishlist is empty', "Tap + Add Item to save a piece you'd like to find."] },
@@ -1424,7 +1450,8 @@ function autoPickTab() {
 // Filters that don't apply to a tab are cleared, so nothing is silently hidden.
 function resetInapplicableFilters() {
   const set = function(id) { const el = document.getElementById(id); if (el) el.value = ''; };
-  if (currentTab !== 'forsale')                          { filterStatus  = ''; set('filter-status'); }
+  filterStatus = ''; set('filter-status');   // status options differ per tab, so it always starts clear
+  if (currentTab !== 'collection')                       { filterReturnReason = ''; set('filter-returnreason'); }
   if (currentTab !== 'forsale' && currentTab !== 'sold') { filterChannel = ''; set('filter-channel'); }
   if (currentTab === 'wishlist')                         { filterPType   = ''; set('filter-ptype'); filterCondition = ''; set('filter-condition'); filterSource = ''; set('filter-source'); }
   if (currentTab !== 'sold')                             { filterYearSold = ''; set('filter-yearsold'); }
@@ -1444,14 +1471,25 @@ function renderTabs() {
   const el = document.getElementById('tab-bar');
   if (!el) return;
   el.innerHTML = TAB_DEFS.map(function(d) {
-    const n = items.filter(function(i) { return tabOf(i.status) === d.id; }).length;
+    const n = items.filter(function(i) { return tabOf(i.status) === d.id && i.status !== 'returned'; }).length;
     return '<button class="tab' + (d.id === currentTab ? ' active' : '') + '" role="tab" aria-selected="' + (d.id === currentTab) +
       '" onclick="setTab(\'' + d.id + '\')">' + d.label + '<span class="tab-count">' + n + '</span></button>';
   }).join('');
 }
 function updateFilterUI() {
   const show = function(id, on) { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
-  show('fr-status',  currentTab === 'forsale');
+  show('fr-status',  currentTab === 'forsale' || currentTab === 'collection');
+  show('fr-returnreason', currentTab === 'collection');
+  const stSel = document.getElementById('filter-status');
+  if (stSel) {
+    const opts = currentTab === 'collection' ? [['stash', 'Collection'], ['returned', 'Returned']] : [['draft', 'Draft'], ['active', 'Active'], ['hold', 'Hold / Pending']];
+    const key = opts.map(function(o) { return o[0]; }).join();
+    if (stSel.dataset.opts !== key) {
+      stSel.innerHTML = '<option value="">All</option>' + opts.map(function(o) { return '<option value="' + o[0] + '">' + o[1] + '</option>'; }).join('');
+      stSel.dataset.opts = key;
+    }
+    stSel.value = filterStatus;
+  }
   show('fr-channel', currentTab === 'forsale' || currentTab === 'sold');
   show('fr-ptype',   currentTab !== 'wishlist');
   show('fr-condition', currentTab !== 'wishlist');
@@ -1465,15 +1503,16 @@ function updateFilterUI() {
   if (filterBrand) n++;
   if (filterYear) n++;
   if (currentTab === 'sold' && filterYearSold) n++;
-  if (currentTab === 'forsale' && filterStatus) n++;
+  if ((currentTab === 'forsale' || currentTab === 'collection') && filterStatus) n++;
+  if (currentTab === 'collection' && filterReturnReason) n++;
   if ((currentTab === 'forsale' || currentTab === 'sold') && filterChannel) n++;
   if (currentTab !== 'wishlist' && filterPType) n++;
   const btn = document.getElementById('filters-btn');
   if (btn) btn.textContent = n ? 'Filters · ' + n : 'Filters';
 }
 function clearFilters() {
-  filterStatus = ''; filterChannel = ''; filterPType = ''; filterCategory = ''; filterBrand = ''; filterYear = ''; filterYearSold = ''; filterCondition = ''; filterSize = ''; filterSource = '';
-  ['filter-status', 'filter-channel', 'filter-ptype', 'filter-condition', 'filter-source', 'filter-size', 'filter-category', 'filter-brand', 'filter-year', 'filter-yearsold'].forEach(function(id) { const el = document.getElementById(id); if (el) el.value = ''; });
+  filterStatus = ''; filterChannel = ''; filterPType = ''; filterCategory = ''; filterBrand = ''; filterYear = ''; filterYearSold = ''; filterCondition = ''; filterSize = ''; filterSource = ''; filterReturnReason = '';
+  ['filter-returnreason', 'filter-status', 'filter-channel', 'filter-ptype', 'filter-condition', 'filter-source', 'filter-size', 'filter-category', 'filter-brand', 'filter-year', 'filter-yearsold'].forEach(function(id) { const el = document.getElementById(id); if (el) el.value = ''; });
   renderGrid();
 }
 function closePopovers() {
@@ -1684,6 +1723,7 @@ function canonicalBrand(raw) { const k = brandKey(raw); return (k && brandDispla
 const SORT_DEFS = {
   acquired:  { label: 'Date acquired',    type: 'str', dir: 'desc', get: function(i) { return i.acquired || null; } },
   soldDate:  { label: 'Date sold',        type: 'str', dir: 'desc', get: function(i) { return i.soldDate || null; } },
+  returnDate:{ label: 'Date returned',    type: 'str', dir: 'desc', get: function(i) { return i.returnDate || null; } },
   name:      { label: 'Name',             type: 'str', dir: 'asc',  get: function(i) { return i.name || null; } },
   brand:     { label: 'Brand',            type: 'str', dir: 'asc',  get: function(i) { return brandKey(i.brand) || null; } },
   paid:      { label: 'Price paid (USD)', type: 'num', dir: 'desc', get: costUSD },
@@ -1694,7 +1734,7 @@ const SORT_DEFS = {
   profit:    { label: 'Profit',           type: 'num', dir: 'desc', get: function(i) { const p = numOrNull(i.soldPrice), c = costUSD(i); return (p != null && c != null) ? p - c : null; } }
 };
 const TAB_SORTS = {
-  collection: ['acquired', 'paid', 'name', 'brand'],
+  collection: ['acquired', 'paid', 'name', 'brand', 'returnDate'],
   wishlist:   ['name', 'brand', 'target'],
   forsale:    ['asking', 'margin', 'paid', 'acquired', 'name', 'brand'],
   sold:       ['soldDate', 'soldPrice', 'profit', 'acquired', 'name', 'brand']
@@ -1760,12 +1800,16 @@ function renderStats(list) {
     pills = [['Items', list.length], ['Active', active.length],
              ['Value', fmt(sum(list, function(i) { return numOrNull(i.price); })), noPrice ? noPrice + ' without an asking price' : '']];
   } else if (currentTab === 'collection') {
-    const needUSD = list.filter(function(i) { return numOrNull(i.cost) != null && costUSD(i) == null; }).length;
-    const nNew = list.filter(function(i) { return i.purchaseType === 'new'; }).length;
-    const nPre = list.filter(function(i) { return i.purchaseType === 'preowned'; }).length;
-    const nUnset = list.length - nNew - nPre;
-    pills = [['Pieces', list.length, nNew + ' bought new · ' + nPre + ' pre-owned' + (nUnset ? ' · ' + nUnset + ' not set' : '')],
-             ['Total', fmt(sum(list, costUSD)), needUSD ? needUSD + ' need a USD cost' : '']];
+    // Returned pieces are shown but never counted or totalled: they are not owned.
+    const owned = list.filter(function(i) { return i.status !== 'returned'; });
+    const nRet = list.length - owned.length;
+    const retNote = nRet ? 'excludes ' + nRet + ' returned' : '';
+    const needUSD = owned.filter(function(i) { return numOrNull(i.cost) != null && costUSD(i) == null; }).length;
+    const nNew = owned.filter(function(i) { return i.purchaseType === 'new'; }).length;
+    const nPre = owned.filter(function(i) { return i.purchaseType === 'preowned'; }).length;
+    const nUnset = owned.length - nNew - nPre;
+    pills = [['Pieces', owned.length, [nNew + ' bought new · ' + nPre + ' pre-owned' + (nUnset ? ' · ' + nUnset + ' not set' : ''), retNote].filter(Boolean).join(' · ')],
+             ['Total', fmt(sum(owned, costUSD)), [needUSD ? needUSD + ' need a USD cost' : '', retNote].filter(Boolean).join(' · ')]];
   } else if (currentTab === 'wishlist') {
     pills = [['Pieces', list.length],
              ['Budget', fmt(sum(list, function(i) { return numOrNull(i.price); })), noPrice ? noPrice + ' without a target price' : '']];
@@ -1794,11 +1838,12 @@ function getVisible() {
     if (filterCondition && item.conditionGrade !== filterCondition) return false;
     if (filterSize && item.size !== filterSize) return false;
     if (filterSource && item.source !== filterSource) return false;
+    if (filterReturnReason && item.returnReason !== filterReturnReason) return false;
     if (filterBrand && brandKey(item.brand) !== filterBrand) return false;
     if (filterYear && yearOf(item.acquired) !== filterYear) return false;
     if (filterYearSold && yearOf(item.soldDate) !== filterYearSold) return false;
     if (q) {
-      const hay = [item.name, item.brand, item.category, item.notes, item.sku, item.color, item.material, item.modelSize].join(' ').toLowerCase();
+      const hay = [item.name, item.brand, item.category, item.notes, item.sku, item.color, item.material, item.modelSize, item.returnReason, item.returnNotes].join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -1853,10 +1898,11 @@ function renderChips(shown, total) {
   const chips = [];
   const add = function(key, label) { chips.push('<button class="chip" type="button" onclick="removeFilter(\'' + key + '\')">' + esc(label) + ' ×</button>'); };
   const map = brandDisplayMap();
-  const stLabel = { draft: 'Draft', active: 'Active', hold: 'Hold / Pending' };
+  const stLabel = { draft: 'Draft', active: 'Active', hold: 'Hold / Pending', stash: 'Collection', returned: 'Returned' };
   const ptLabel = { new: 'Bought new', preowned: 'Bought pre-owned' };
   if (searchQuery.trim()) add('search', 'Search: ' + searchQuery.trim());
-  if (currentTab === 'forsale' && filterStatus) add('status', stLabel[filterStatus] || filterStatus);
+  if ((currentTab === 'forsale' || currentTab === 'collection') && filterStatus) add('status', stLabel[filterStatus] || filterStatus);
+  if (currentTab === 'collection' && filterReturnReason) add('returnreason', 'Return reason: ' + filterReturnReason);
   if ((currentTab === 'forsale' || currentTab === 'sold') && filterChannel) add('channel', filterChannel);
   if (currentTab !== 'wishlist' && filterPType) add('ptype', ptLabel[filterPType] || filterPType);
   if (currentTab !== 'wishlist' && filterCondition) add('condition', 'Condition: ' + conditionLabel(filterCondition));
@@ -1880,6 +1926,7 @@ function removeFilter(key) {
   if (key === 'condition') { filterCondition = ''; set('filter-condition'); }
   if (key === 'size')     { filterSize = '';      set('filter-size'); }
   if (key === 'source')   { filterSource = '';    set('filter-source'); }
+  if (key === 'returnreason') { filterReturnReason = ''; set('filter-returnreason'); }
   if (key === 'category') { filterCategory = '';  set('filter-category'); }
   if (key === 'brand')    { filterBrand = '';     set('filter-brand'); }
   if (key === 'year')     { filterYear = '';      set('filter-year'); }
@@ -1908,8 +1955,8 @@ function renderGrid() {
     return;
   }
 
-  const statusCls   = { active:'status-active', sold:'status-sold', draft:'status-draft', hold:'status-hold', stash:'status-stash', wishlist:'status-wishlist' };
-  const statusLabel = { active:'Active', sold:'Sold', draft:'Draft', hold:'Hold', stash:'Collection', wishlist:'Wishlist' };
+  const statusCls   = { active:'status-active', sold:'status-sold', draft:'status-draft', hold:'status-hold', stash:'status-stash', returned:'status-returned', wishlist:'status-wishlist' };
+  const statusLabel = { active:'Active', sold:'Sold', draft:'Draft', hold:'Hold', stash:'Collection', returned:'Returned', wishlist:'Wishlist' };
   const typeLabel   = { new:'Bought new', preowned:'Bought pre-owned' };
 
   grid.innerHTML = list.map(function(item) {
@@ -1920,7 +1967,8 @@ function renderGrid() {
     const marginPct = (margin != null && costU) ? Math.round(margin / costU * 100) : null;
 
     const isWish  = item.status === 'wishlist';
-    const isStash = item.status === 'stash';
+    const isReturned = item.status === 'returned';
+    const isStash = item.status === 'stash' || isReturned;   // owned-style card: paid amount, no sale fields
     const isSale  = !isWish && !isStash;
 
     const channels = (isSale ? (item.channels || []) : []).map(function(c) {
@@ -1932,7 +1980,7 @@ function renderGrid() {
           ? '<span class="price-current">' + fmt(price) + '</span><span class="price-cost">target price</span>'
           : '<span class="price-cost">No target price</span>')
       : isStash
-      ? (cost ? '<span class="price-current">' + costLabel(item) + '</span><span class="price-cost">paid</span>'
+      ? (cost ? '<span class="price-current">' + costLabel(item) + '</span><span class="price-cost">' + (isReturned ? 'paid · returned' : 'paid') + '</span>'
               : '<span class="price-cost">No cost entered</span>')
       : (item.status === 'sold' && item.soldPrice)
       ? '<span class="price-current">' + fmt(item.soldPrice) + '</span>' + (cost ? '<span class="price-cost">sold · cost ' + costLabel(item) + '</span>' : '<span class="price-cost">sold</span>')
@@ -1976,10 +2024,12 @@ function renderGrid() {
     function detail(label, value, span) {
       return '<div class="detail' + (span ? ' span2' : '') + '"><span class="detail-label">' + label + '</span><span class="detail-value">' + esc(value) + '</span></div>';
     }
-    const isSold = item.status === 'sold' && item.soldDate;
+    const isSold = (item.status === 'sold' && item.soldDate) || (isReturned && item.returnDate);
     const detailCells =
       (!isWish && item.acquired ? detail('Acquired', fmtDate(item.acquired)) : '') +
-      (isSold ? detail('Sold', fmtDate(item.soldDate)) : '') +
+      (item.status === 'sold' && item.soldDate ? detail('Sold', fmtDate(item.soldDate)) : '') +
+      (isReturned && item.returnDate ? detail('Returned', fmtDate(item.returnDate)) : '') +
+      (isReturned && item.returnReason ? detail('Return reason', item.returnReason, true) : '') +
       (item.color ? detail('Color', item.color, isSold) : '') +
       (item.material ? detail('Material', item.material, true) : '');
     const receiptTag = !isWish
@@ -1998,7 +2048,7 @@ function renderGrid() {
       '<div class="card-item-name">' + esc(item.name || 'Untitled') + '</div>' +
       '<div class="card-item-brand">' + esc(item.brand || '') + '</div>' +
       '</div>' +
-      (isStash ? '' : '<span class="card-status-badge ' + (statusCls[item.status]||'status-draft') + '">' + (statusLabel[item.status]||'Draft') + '</span>') +
+      (item.status === 'stash' ? '' : '<span class="card-status-badge ' + (statusCls[item.status]||'status-draft') + '">' + (statusLabel[item.status]||'Draft') + '</span>') +
             '</div>' +
       '<div class="card-accent-bar"></div>' +
       '<div class="card-body">' +
@@ -2066,6 +2116,13 @@ function openModal(id) {
   document.getElementById('f-cost-currency').value = item ? (item.costCurrency || 'USD') : 'USD';
   document.getElementById('f-cost-usd').value    = item ? (item.costUSD ?? '')   : '';
   document.getElementById('f-sold-date').value   = item ? (item.soldDate || '')  : '';
+  (function() {
+    const sel = document.getElementById('f-return-reason'), cur = item ? (item.returnReason || '') : '';
+    if (cur && ![...sel.options].some(function(o) { return o.value === cur; })) sel.add(new Option(cur, cur));
+    sel.value = cur;
+  })();
+  document.getElementById('f-return-date').value  = item ? (item.returnDate || '')  : '';
+  document.getElementById('f-return-notes').value = item ? (item.returnNotes || '') : '';
   document.getElementById('f-receipt').checked   = item ? !!item.receipt : false;
 
   document.querySelectorAll('[name="channel"]').forEach(cb => {
@@ -2119,6 +2176,9 @@ function saveItem() {
     costCurrency: document.getElementById('f-cost-currency').value || 'USD',
     costUSD:      document.getElementById('f-cost-currency').value !== 'USD' ? numOrNull(document.getElementById('f-cost-usd').value) : null,
     soldDate:     document.getElementById('f-sold-date').value || '',
+    returnReason: status === 'returned' ? document.getElementById('f-return-reason').value : '',
+    returnDate:   status === 'returned' ? (document.getElementById('f-return-date').value || '') : '',
+    returnNotes:  status === 'returned' ? document.getElementById('f-return-notes').value.trim() : '',
     price:        numOrNull(document.getElementById('f-price').value),
     soldPrice:    numOrNull(document.getElementById('f-sold-price').value),
     status, channels,
@@ -2198,11 +2258,13 @@ function renderPriceHistory() {
 function applyStatusVisibility() {
   const st    = document.getElementById('f-status').value;
   const wish  = st === 'wishlist';
-  const stash = st === 'stash';
+  const stash = st === 'stash' || st === 'returned';
+  const returned = st === 'returned';
   document.querySelectorAll('.sf-sale').forEach(function(el)     { el.style.display = (wish || stash) ? 'none' : ''; });
   document.querySelectorAll('.sf-purchase').forEach(function(el) { el.style.display = wish ? 'none' : ''; });
   document.getElementById('f-price-wrap').style.display = stash ? 'none' : '';
   document.getElementById('f-price-label').textContent  = wish ? 'Target Price' : 'Current Asking Price';
+  document.querySelectorAll('.sf-return').forEach(function(el)   { el.style.display = returned ? '' : 'none'; });
   document.getElementById('f-sold-price-wrap').style.display = st === 'sold' ? '' : 'none';
   document.getElementById('f-sold-date-wrap').style.display  = st === 'sold' ? '' : 'none';
   document.getElementById('f-cost-usd-wrap').style.display   = (!wish && document.getElementById('f-cost-currency').value !== 'USD') ? '' : 'none';
@@ -2211,6 +2273,9 @@ function onStatusChange() { applyStatusVisibility(); }
 
 // ── INIT ───────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+
+  document.getElementById('f-return-reason').innerHTML = '<option value="">—</option>' + RETURN_REASONS.map(function(r) { return '<option value="' + esc(r) + '">' + esc(r) + '</option>'; }).join('');
+  document.getElementById('filter-returnreason').innerHTML = '<option value="">All reasons</option>' + RETURN_REASONS.map(function(r) { return '<option value="' + esc(r) + '">' + esc(r) + '</option>'; }).join('');
 
   if (IS_VIEW_MODE) {
     document.body.classList.add('view-mode');
@@ -2269,6 +2334,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('filter-condition').addEventListener('change', e => { filterCondition = e.target.value; renderGrid(); });
   document.getElementById('filter-size').addEventListener('change', e => { filterSize = e.target.value; renderGrid(); });
   document.getElementById('filter-source').addEventListener('change', e => { filterSource = e.target.value; renderGrid(); });
+  document.getElementById('filter-returnreason').addEventListener('change', e => { filterReturnReason = e.target.value; updateFilterUI(); renderGrid(); });
   document.getElementById('filter-brand').addEventListener('change', e => { filterBrand = e.target.value; renderGrid(); });
   document.getElementById('filter-year').addEventListener('change', e => { filterYear = e.target.value; renderGrid(); });
   document.getElementById('filter-yearsold').addEventListener('change', e => { filterYearSold = e.target.value; renderGrid(); });
@@ -2452,7 +2518,7 @@ function printItem(id) {
   var st = item.status || 'draft';
   var price = item.soldPrice || item.price;
   var priceLabel, fmtPrice;
-  if (st === 'stash') {
+  if (st === 'stash' || st === 'returned') {
     priceLabel = 'Purchase Price';
     fmtPrice = item.cost ? fmtCost(item.cost, item.costCurrency) : '';
   } else if (st === 'wishlist') {
