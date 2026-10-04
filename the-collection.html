@@ -1096,10 +1096,8 @@ body.view-mode .sort-wrap,body.view-mode .chips,body.view-mode .results-note{dis
 const GH_OWNER    = 'rtpalme-C2';
 const GH_REPO     = 'life-stuff-data';
 const GH_FILE     = 'the-collection-inventory.json';
-const GH_SEED_FILE = 'modern-heirloom-inventory.json';   // one-time import source
 const GH_RAW_URL  = `https://raw.githubusercontent.com/${GH_OWNER}/${GH_REPO}/main/${GH_FILE}`;
 const GH_API_URL  = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
-const GH_SEED_URL = `https://raw.githubusercontent.com/${GH_OWNER}/${GH_REPO}/main/${GH_SEED_FILE}`;
 const LS_PAT      = 'tc_gh_pat';
 const LS_SHA      = 'tc_gh_sha';
 const LS_DATA_KEY = 'tc-v1';
@@ -1211,7 +1209,6 @@ async function syncFromGitHub() {
     if (res.status === 404) {
       remoteReady = true;
       setSyncStatus('saving', 'Creating data file on GitHub…');
-      await seedFromOldFile();
       await saveToGitHub();
       return;
     }
@@ -1248,30 +1245,11 @@ async function syncFromGitHub() {
       }
     }
     setSyncStatus('saving', 'Pushing local data to GitHub…');
-    await seedFromOldFile();
     await saveToGitHub();
   } catch(e) {
     setSyncStatus('error', 'GitHub sync failed — working offline');
     showToast('Could not reach GitHub. Changes saved locally.');
   }
-}
-
-// One-time import: if this app's data file doesn't exist yet (or is empty) and
-// nothing is cached locally, start from the old Modern Heirloom inventory.
-async function seedFromOldFile() {
-  if (items.length) return;
-  try {
-    const res = await fetch(GH_SEED_URL + '?t=' + Date.now());
-    if (!res.ok) return;
-    const parsed = await res.json();
-    if (parsed && Array.isArray(parsed.items) && parsed.items.length) {
-      items = parsed.items.map(migrateLegacyCategory);
-      migrateItems();
-      saveLocal();
-      render();
-      showToast('Imported ' + items.length + ' items from your existing inventory');
-    }
-  } catch(e) {}
 }
 
 async function fetchSHA() {
