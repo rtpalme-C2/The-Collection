@@ -1118,7 +1118,6 @@ body.view-mode .sort-wrap,body.view-mode .chips,body.view-mode .results-note{dis
 const GH_OWNER    = 'rtpalme-C2';
 const GH_REPO     = 'life-stuff-data';
 const GH_FILE     = 'the-collection-inventory.json';
-const GH_RAW_URL  = `https://raw.githubusercontent.com/${GH_OWNER}/${GH_REPO}/main/${GH_FILE}`;
 const GH_API_URL  = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
 const LS_PAT      = 'tc_gh_pat';
 const LS_SHA      = 'tc_gh_sha';
@@ -1223,15 +1222,44 @@ function setSyncStatus(state, label) {
 // ════════════════════════════════════════════════════════════════════
 //  GITHUB SYNC FUNCTIONS
 // ════════════════════════════════════════════════════════════════════
+// Reads the data file through the GitHub API with the token, so it works whether the data repo is public or private.
+// (The raw URL only works for a public repo. A private repo answers it with 404, and that must never be read as "no data file yet".)
+function readRemote() {
+  return fetch(GH_API_URL, {
+    cache: 'no-store',
+    headers: { 'Authorization': 'Bearer ' + getPAT(), 'Accept': 'application/vnd.github.raw+json' }
+  });
+}
+// GitHub also answers 404 when a token cannot see a private repo. Before treating a 404 as "no file yet", check the repo itself.
+async function repoReachable() {
+  try {
+    const res = await fetch('https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO, {
+      cache: 'no-store',
+      headers: { 'Authorization': 'Bearer ' + getPAT(), 'Accept': 'application/vnd.github+json' }
+    });
+    return res.ok;
+  } catch (e) { return false; }
+}
+
 async function syncFromGitHub() {
   setSyncStatus('saving', 'Loading from GitHub…');
   try {
-    const res = await fetch(GH_RAW_URL + '?t=' + Date.now());
-    // 404 means file doesn't exist yet — push local data up to create it
+    const res = await readRemote();
     if (res.status === 404) {
+      // Only create the data file if the repo is reachable, which proves the file really is missing. Otherwise change nothing.
+      if (!(await repoReachable())) {
+        setSyncStatus('error', 'Cannot reach the data repo — working offline');
+        showToast('Your GitHub token cannot see the data repo. Nothing was changed. Reconnect with a token that has access.', true);
+        return;
+      }
       remoteReady = true;
       setSyncStatus('saving', 'Creating data file on GitHub…');
       await saveToGitHub();
+      return;
+    }
+    if (res.status === 401 || res.status === 403) {
+      setSyncStatus('error', 'GitHub refused the token — working offline');
+      showToast('GitHub refused your token. Nothing was changed. Check that it has not expired, then reconnect.', true);
       return;
     }
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -2277,17 +2305,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.add('view-mode');
     const banner = document.getElementById('view-banner');
     if (banner) banner.style.display = '';
-    fetch(GH_RAW_URL + '?t=' + Date.now())
-      .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function(data) {
-        items = (data.items || []).filter(function(i) { return i.status === 'active'; });
-        migrateItems();
-        render();
-      })
-      .catch(function() {
-        document.getElementById('items-grid').innerHTML =
-          '<div style="grid-column:1/-1;text-align:center;padding:60px;color:var(--text-dim);font-size:.85rem">Unable to load inventory. Please try again later.</div>';
-      });
+    // The public view is turned off: the data repo is private, so there is nothing a visitor can load.
+    document.getElementById('items-grid').innerHTML =
+      '<div style="grid-column:1/-1;text-align:center;padding:60px;color:var(--text-dim);font-size:.85rem">This public view has been turned off.</div>';
     document.getElementById('search-input').addEventListener('input', function(e) {
       searchQuery = e.target.value; renderGrid();
     });
