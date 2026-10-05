@@ -653,11 +653,10 @@ body.view-mode .toolbar{justify-content:flex-start}
   .view-banner{padding:10px 16px;flex-direction:column;align-items:flex-start}
 }
 
-/* ── NEW STATUSES / TYPE BADGE ── */
+/* ── NEW STATUSES ── */
 .status-stash{background:rgba(245,242,236,.14);color:#F5F2EC;border:1px solid rgba(245,242,236,.35)}
 .status-wishlist{background:transparent;color:var(--mh-rose);border:1px dashed rgba(220,201,166,.65)}
 .status-returned{background:rgba(160,150,175,.18);color:#C4BBD3;border:1px solid rgba(160,150,175,.4)}
-.type-badge{background:rgba(245,242,236,.1);color:rgba(245,242,236,.85);border:1px solid rgba(245,242,236,.22)}
 
 /* ── LANDING LAYOUT: compact header, tabs, filters popover ── */
 .sync-chip{margin-left:auto;align-self:center;display:flex;align-items:center;gap:8px;font-family:inherit;font-size:.7rem;letter-spacing:.06em;background:rgba(245,242,236,.08);border:1px solid rgba(220,201,166,.25);color:rgba(245,242,236,.78);padding:6px 12px;border-radius:20px;cursor:pointer;transition:all .18s}
@@ -1957,7 +1956,6 @@ function renderGrid() {
 
   const statusCls   = { active:'status-active', sold:'status-sold', draft:'status-draft', hold:'status-hold', stash:'status-stash', returned:'status-returned', wishlist:'status-wishlist' };
   const statusLabel = { active:'Active', sold:'Sold', draft:'Draft', hold:'Hold', stash:'Collection', returned:'Returned', wishlist:'Wishlist' };
-  const typeLabel   = { new:'Bought new', preowned:'Bought pre-owned' };
 
   grid.innerHTML = list.map(function(item) {
     const price  = Number(item.price)  || 0;
@@ -2017,9 +2015,7 @@ function renderGrid() {
       : '';
 
     const topStyle = imgs.length ? ' style="border-radius:0"' : '';
-    const typeBadge = (item.purchaseType === 'preowned' && !isWish)
-      ? '<span class="channel-badge type-badge">' + typeLabel[item.purchaseType] + '</span>' : '';
-    const badgeRow = typeBadge + channels;
+    const badgeRow = channels;
 
     function detail(label, value, span) {
       return '<div class="detail' + (span ? ' span2' : '') + '"><span class="detail-label">' + label + '</span><span class="detail-value">' + esc(value) + '</span></div>';
