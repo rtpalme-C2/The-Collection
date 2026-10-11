@@ -2583,13 +2583,15 @@ function printItem(id) {
   document.getElementById('print-content').innerHTML = page1 + page2 + '</div>';
   var allImgs = document.getElementById('print-content').querySelectorAll('img');
   var fitSheet = function() {
-    // Measure while hidden-but-laid-out, then shrink the text block until everything fits on one page.
     var sheet = document.getElementById('print-sheet');
     var prev = sheet.getAttribute('style');
     sheet.setAttribute('style', 'display:block;position:absolute;left:-9999px;top:0;visibility:hidden');
-    var page = sheet.querySelector('.ps-page'), body = sheet.querySelector('.ps-body');
+    var page = sheet.querySelector('.ps-page'), body = sheet.querySelector('.ps-body'), hero = sheet.querySelector('.ps-hero-wrap');
+    var over = function() { return page && page.scrollHeight > page.clientHeight + 1; };
     var z = 1;
-    while (page && body && page.scrollHeight > page.clientHeight + 1 && z > 0.6) { z -= 0.04; body.style.zoom = z; }
+    while (body && over() && z > 0.6) { z -= 0.04; body.style.zoom = z; }
+    var hh = 100, heroMin = 18;
+    while (hero && over() && hh > heroMin) { hh -= 6; hero.style.flex = '0 0 ' + hh + '%'; hero.style.minHeight = '0'; }
     if (body) body.setAttribute('data-z', String(z));
     if (prev === null) sheet.removeAttribute('style'); else sheet.setAttribute('style', prev);
   };
