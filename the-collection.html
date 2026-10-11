@@ -1902,7 +1902,8 @@ function collSections() {
   if (tab === 'forsale' || tab === 'sold')
     push('CHANNEL', [['', 'All channels']].concat(CHANNELS.map(function(c) { return [c, c]; })), filterChannel, function(v) { filterChannel = v; app(); });
   if (tab === 'collection')
-    push('RETURN REASON', [['', 'All reasons']].concat(RETURN_REASONS.map(function(r) { return [r, r]; })), filterReturnReason, function(v) { filterReturnReason = v; app(); });
+    var RR_SHORT = {'Condition not as described':'Condition','Authenticity concern':'Authenticity','Color/finish not as expected':'Color','Size/proportions':'Size','Hardware':'Hardware',"Didn't suit my needs":'Fit','Changed my mind':'Regret','Other':'Other'};
+    push('RETURN REASON', [['', 'All']].concat(RETURN_REASONS.map(function(r) { return [r, RR_SHORT[r] || r]; })), filterReturnReason, function(v) { filterReturnReason = v; app(); });
   if (tab !== 'wishlist') {
     push('BOUGHT', [['', 'All'], ['new', 'New'], ['preowned', 'Pre-Owned']], filterPType, function(v) { filterPType = v; app(); });
     push('CONDITION', [['', 'All']].concat(CONDITIONS.map(function(c) { return [c[0], c[1]]; })), filterCondition, function(v) { filterCondition = v; app(); });
