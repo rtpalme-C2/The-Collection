@@ -1945,12 +1945,22 @@ function collChipClick(si, oi) {
 function openCollSheet(which) {
   buildCollSheet();
   updateFilterUI();
-  document.getElementById('coll-backdrop').hidden = false;
+  var bd = document.getElementById('coll-backdrop');
+  bd.hidden = false;
+  bd.classList.add('open');
   document.body.style.overflow = 'hidden';
-  if (which === 'sort') { var s = document.getElementById('coll-sort-sec'); if (s) s.scrollIntoView(); }
+  var t = document.getElementById('coll-sheet-title');
+  if (which === 'sort') {
+    if (t) t.textContent = 'Sort by';
+    setTimeout(function(){ var s = document.getElementById('coll-sort-sec'); if (s) s.scrollIntoView({behavior:'smooth',block:'start'}); }, 50);
+  } else {
+    if (t) t.textContent = 'Filters';
+  }
 }
 function closeCollSheet() {
-  document.getElementById('coll-backdrop').hidden = true;
+  var bd = document.getElementById('coll-backdrop');
+  bd.hidden = true;
+  bd.classList.remove('open');
   document.body.style.overflow = '';
 }
 function clearCollFilters() {
