@@ -123,7 +123,7 @@ header{
   color:var(--text-dim);pointer-events:none;
 }
 /* ── Unified filter bar (family standard v1.9) ── */
-.ubar{display:flex;gap:10px;align-items:stretch;justify-content:center}
+.ubar{display:flex;gap:10px;align-items:stretch;justify-content:safe center;overflow-x:auto;scrollbar-width:none}.ubar::-webkit-scrollbar{display:none}.ubar .ubtn{flex-shrink:0}
 .ubar .ubtn{flex:none;display:flex;align-items:center;justify-content:center;gap:6px;height:44px;padding:0 16px;border-radius:20px;border:1.5px solid var(--np-thread);font-size:.9rem;background:#fff;color:var(--ink);font-weight:500;font-family:inherit;cursor:pointer;white-space:nowrap}
 .ubar .ubtn .cnt{background:var(--np-main);color:#fff;font-size:.72rem;font-weight:700;min-width:22px;height:22px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;padding:0 6px}
 .ubar .ubtn.add{background:var(--np-main);border-color:var(--np-main);color:#fff;font-weight:600}
