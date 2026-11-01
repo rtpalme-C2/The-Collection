@@ -842,6 +842,7 @@ body.view-mode .ubar-wrap,body.view-mode .chips,body.view-mode .results-note{dis
               <option value="active">Active</option>
               <option value="hold">Hold / Pending</option>
               <option value="sold">Sold</option>
+              <option value="traded" disabled>Traded (complete through Trade section)</option>
               <option value="stash">Collection</option>
               <option value="returned">Returned</option>
               <option value="wishlist">Wishlist</option>
@@ -973,12 +974,29 @@ body.view-mode .ubar-wrap,body.view-mode .chips,body.view-mode .results-note{dis
         </div>
       </div>
 
+      <div class="form-section" id="trade-section">
+        <div class="form-section-label">Trade</div>
+        <p id="trade-history" style="font-size:.8rem"></p>
+        <p style="font-size:.8rem">To arrange a trade, first add the incoming bag to Wishlist. Its photos and details stay with that record. Complete only after both bags have been received.</p>
+        <div class="form-grid" id="trade-fields">
+          <div class="form-field"><label for="f-trade-state">Trade status</label><select id="f-trade-state"><option value="">No trade</option><option value="pending">Pending</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></div>
+          <div class="form-field"><label for="f-trade-incoming">Incoming bag (Wishlist)</label><select id="f-trade-incoming"></select></div>
+          <div class="form-field"><label for="f-trade-date">Trade date</label><input type="date" id="f-trade-date"></div>
+          <div class="form-field"><label for="f-trade-added">Cash added (USD)</label><input type="number" min="0" step="0.01" id="f-trade-added" value="0"></div>
+          <div class="form-field"><label for="f-trade-received">Cash received (USD)</label><input type="number" min="0" step="0.01" id="f-trade-received" value="0"></div>
+          <div class="form-field"><label for="f-trade-fees">Shipping / fees paid (USD)</label><input type="number" min="0" step="0.01" id="f-trade-fees" value="0"></div>
+          <div class="form-field"><label for="f-trade-value">Agreed trade value (USD, optional)</label><input type="number" min="0" step="0.01" id="f-trade-value"></div>
+          <div class="form-field"><label for="f-trade-notes">Trade notes</label><input type="text" id="f-trade-notes"></div>
+        </div>
+        <p style="font-size:.8rem">Incoming recorded cost carries forward the outgoing USD cost, plus cash added and fees, minus cash received (minimum $0). Unknown outgoing cost stays unknown. Trade value is separate from spending. Completed trade terms are retained as history.</p>
+      </div>
+
       <!-- Pricing -->
       <div class="form-section">
         <div class="form-section-label">Pricing</div>
         <div class="form-grid">
           <div class="form-field sf-purchase">
-            <label>Amount Paid (Cost)</label>
+            <label id="f-cost-label">Amount Paid (Cost)</label>
             <div style="display:flex;gap:6px">
               <select id="f-cost-currency" style="width:82px;flex-shrink:0;padding:6px 4px;border:1.5px solid var(--paper-dim);border-radius:8px;font-family:'Plus Jakarta Sans',sans-serif;font-size:.8rem;background:white;color:var(--ink);outline:none;cursor:pointer">
                 <option value="USD">USD $</option>
@@ -1444,6 +1462,7 @@ const TAB_DEFS = [
     empty:['Your wishlist is empty', "Tap + Add Item to save a piece you'd like to find."] },
   { id:'forsale',    label:'Listed',     statuses:['draft','active','hold'], newStatus:'draft',
     empty:['Nothing listed yet', 'Add a piece and set it to Draft or Active.'] },
+  { id:'trades', label:'Traded', statuses:['traded'], newStatus:'stash', empty:['No completed trades yet', 'Arrange a trade from an existing bag’s Trade section.'] },
   { id:'sold',       label:'Sold',       statuses:['sold'],                  newStatus:'sold',
     empty:['No sold pieces yet', 'Pieces you mark as Sold appear here.'] }
 ];
@@ -1577,7 +1596,7 @@ function conditionLabel(k) { const c = CONDITIONS.find(function(x) { return x[0]
 const ACCESSORIES = ['Dustbag', 'Original Box', 'Hangtag', 'Lock & keys', 'Clochette', 'Charms', 'Strap', 'Authenticity / CITES papers'];
 const ACC_RULES = [[/dust\s?bag/i, 'Dustbag'], [/\bbox\b/i, 'Original Box'], [/hang\s?tag|hagtag/i, 'Hangtag'], [/\block\b|\bkeys?\b/i, 'Lock & keys'],
   [/clochette/i, 'Clochette'], [/charm/i, 'Charms'], [/\bstrap\b/i, 'Strap'], [/authenticity|cites/i, 'Authenticity / CITES papers']];
-const SOURCES = ['Retail', 'Outlet', 'Resale', 'Gift'];
+const SOURCES = ['Retail', 'Outlet', 'Resale', 'Gift', 'Trade'];
 const HARDWARE = ['Brass', 'Gold', 'Silver', 'Palladium', 'Gunmetal', 'Black', 'Copper', 'None', 'Other'];
 const SIZES = ['Mini', 'Small', 'Medium', 'Large', 'Extra Large'];
 // One-time size picks for pieces whose old Size was blank or a measurement (Robert, 2026-10-03).
@@ -1729,12 +1748,14 @@ const TAB_SORTS = {
   collection: ['acquired', 'paid', 'name', 'brand', 'returnDate'],
   wishlist:   ['name', 'brand', 'target'],
   forsale:    ['asking', 'margin', 'paid', 'acquired', 'name', 'brand'],
+  trades:     ['acquired', 'name', 'brand'],
   sold:       ['soldDate', 'soldPrice', 'profit', 'acquired', 'name', 'brand']
 };
 const sortState = {
   collection: { key: 'acquired', dir: 'desc' },
   wishlist:   { key: 'name',     dir: 'asc'  },
   forsale:    { key: 'asking',   dir: 'desc' },
+  trades:     { key: 'acquired', dir: 'desc' },
   sold:       { key: 'soldDate', dir: 'desc' }
 };
 // Items missing the sort value always go last, whichever direction is chosen.
@@ -1797,6 +1818,8 @@ function renderStats(list) {
     const nUnset = owned.length - nNew - nPre;
     pills = [['Pieces', owned.length, [nNew + ' bought new · ' + nPre + ' pre-owned' + (nUnset ? ' · ' + nUnset + ' not set' : ''), retNote].filter(Boolean).join(' · ')],
              ['Total', fmt(sum(owned, costUSD)), [needUSD ? needUSD + ' need a USD cost' : '', retNote].filter(Boolean).join(' · ')]];
+  } else if (currentTab === 'trades') {
+    pills = [['Traded pieces', list.length]];
   } else if (currentTab === 'wishlist') {
     pills = [['Pieces', list.length],
              ['Budget', fmt(sum(list, function(i) { return numOrNull(i.price); })), noPrice ? noPrice + ' without a target price' : '']];
@@ -2025,8 +2048,8 @@ function renderGrid() {
     return;
   }
 
-  const statusCls   = { active:'status-active', sold:'status-sold', draft:'status-draft', hold:'status-hold', stash:'status-stash', returned:'status-returned', wishlist:'status-wishlist' };
-  const statusLabel = { active:'Active', sold:'Sold', draft:'Draft', hold:'Hold', stash:'Collection', returned:'Returned', wishlist:'Wishlist' };
+  const statusCls   = { active:'status-active', sold:'status-sold', draft:'status-draft', hold:'status-hold', stash:'status-stash', returned:'status-returned', traded:'status-sold', wishlist:'status-wishlist' };
+  const statusLabel = { active:'Active', sold:'Sold', draft:'Draft', hold:'Hold', stash:'Collection', returned:'Returned', traded:'Traded', wishlist:'Wishlist' };
 
   grid.innerHTML = list.map(function(item) {
     const price  = Number(item.price)  || 0;
@@ -2037,7 +2060,7 @@ function renderGrid() {
 
     const isWish  = item.status === 'wishlist';
     const isReturned = item.status === 'returned';
-    const isStash = item.status === 'stash' || isReturned;   // owned-style card: paid amount, no sale fields
+    const isStash = item.status === 'stash' || item.status === 'traded' || isReturned;   // owned-style card: paid amount, no sale fields
     const isSale  = !isWish && !isStash;
 
     const channels = (isSale ? (item.channels || []) : []).map(function(c) {
@@ -2049,7 +2072,7 @@ function renderGrid() {
           ? '<span class="price-current">' + fmt(price) + '</span><span class="price-cost">target price</span>'
           : '<span class="price-cost">No target price</span>')
       : isStash
-      ? (cost ? '<span class="price-current">' + costLabel(item) + '</span><span class="price-cost">' + (isReturned ? 'paid · returned' : 'paid') + '</span>'
+      ? (numOrNull(item.cost) != null ? '<span class="price-current">' + costLabel(item) + '</span><span class="price-cost">' + (item.status === 'traded' ? 'original cost · traded' : item.acquisitionTradeId ? 'carried cost · trade' : isReturned ? 'paid · returned' : 'paid') + '</span>'
               : '<span class="price-cost">No cost entered</span>')
       : (item.status === 'sold' && item.soldPrice)
       ? '<span class="price-current">' + fmt(item.soldPrice) + '</span>' + (cost ? '<span class="price-cost">sold · cost ' + costLabel(item) + '</span>' : '<span class="price-cost">sold</span>')
@@ -2097,6 +2120,7 @@ function renderGrid() {
       (item.status === 'sold' && item.soldDate ? detail('Sold', fmtDate(item.soldDate)) : '') +
       (isReturned && item.returnDate ? detail('Returned', fmtDate(item.returnDate)) : '') +
       (isReturned && item.returnReason ? detail('Return reason', item.returnReason, true) : '') +
+      (tradeSummary(item) ? detail('Trade', tradeSummary(item), true) : '') +
       (item.color ? detail('Color', item.color, isSold) : '') +
       (item.material ? detail('Material', item.material, true) : '');
     const receiptTag = !isWish
@@ -2201,6 +2225,8 @@ function openModal(id) {
   renderPriceHistory();
   renderImageList();
 
+  document.getElementById('f-cost-label').textContent = item && item.acquisitionTradeId ? 'Carried Cost (Trade)' : 'Amount Paid (Cost)';
+  populateTradeForm(item);
   applyStatusVisibility();
 
   document.getElementById('modal-overlay').classList.add('open');
@@ -2256,6 +2282,8 @@ function saveItem() {
     images: pendingImages,
   };
 
+  let tradeUpdate;
+  try { tradeUpdate = prepareTrade(editingId, data); } catch (e) { showToast(e.message, true); return; }
   if (editingId) {
     const idx = items.findIndex(i => i.id === editingId);
     if (idx >= 0) items[idx] = { ...items[idx], ...data };
@@ -2263,8 +2291,9 @@ function saveItem() {
     items.unshift({ id: newId(), ...data });
   }
 
+  if (tradeUpdate) tradeUpdate();
   const wasEdit = !!editingId;
-  const dest    = tabOf(status);
+  const dest    = tabOf(data.status);
   const moved   = dest !== currentTab;
   closeModal();
   if (moved) { currentTab = dest; rememberTab(); resetInapplicableFilters(); }
@@ -2275,6 +2304,7 @@ function saveItem() {
 
 function deleteItem() {
   if (!editingId) return;
+  if (items.some(i => (i.trade && i.trade.incomingId === editingId) || (i.id === editingId && i.trade))) { showToast('Trade history links this item. Keep it to preserve the exchange.', true); return; }
   if (!confirm('Delete this item? This cannot be undone.')) return;
   items = items.filter(i => i.id !== editingId);
   closeModal();
@@ -2321,11 +2351,87 @@ function renderPriceHistory() {
   }).join('');
 }
 
+
+// Trades live on the outgoing item so existing JSON sync/export preserves the whole exchange.
+function tradeSummary(item) {
+  const origin = !item.trade && items.find(i => i.trade && i.trade.id === item.acquisitionTradeId);
+  const t = item.trade || (origin && origin.trade);
+  if (!t) return '';
+  const other = origin || items.find(i => i.id === t.incomingId);
+  return t.status + ' · ' + (origin ? 'from ' : 'for ') + (other ? other.name : 'linked bag') +
+    ' · cash added ' + fmt(t.cashAdded) + ' · cash received ' + fmt(t.cashReceived) +
+    ' · fees ' + fmt(t.fees) + (t.date ? ' · ' + fmtDate(t.date) : '');
+}
+function populateTradeForm(item) {
+  const t = item && item.trade;
+  document.getElementById('trade-section').style.display = item ? '' : 'none';
+  document.getElementById('trade-history').textContent = item ? tradeSummary(item) : '';
+  const locked = t && t.status === 'completed';
+  document.querySelectorAll('#trade-fields input, #trade-fields select').forEach(el => el.disabled = !!locked);
+  const sel = document.getElementById('f-trade-incoming');
+  sel.innerHTML = '<option value="">Select incoming bag</option>' + items.filter(i => i.id !== (item && item.id) &&
+    (i.status === 'wishlist' || (t && i.id === t.incomingId))).map(i => '<option value="' + esc(i.id) + '">' + esc(i.name) + '</option>').join('');
+  const fields = {state: 'status', incoming: 'incomingId', date: 'date', added: 'cashAdded', received: 'cashReceived', fees: 'fees', value: 'agreedValue', notes: 'notes'};
+  Object.keys(fields).forEach(k => document.getElementById('f-trade-' + k).value = t ? (t[fields[k]] ?? '') : (['added','received','fees'].includes(k) ? 0 : ''));
+}
+function prepareTrade(id, data) {
+  if (!id) return null;
+  const outgoing = items.find(i => i.id === id);
+  if (!outgoing) throw new Error('Outgoing bag was not found.');
+  const old = outgoing.trade;
+  if (old && old.status === 'completed') {
+    if (data.status !== 'traded') throw new Error('Keep the completed outgoing bag marked Traded.');
+    return null;
+  }
+  // A wishlist bag reserved by another pending trade cannot be sold, returned or acquired early.
+  const reservation = items.find(i => i.id !== id && i.trade && i.trade.status === 'pending' && i.trade.incomingId === id);
+  if (reservation && data.status !== 'wishlist') throw new Error('Complete or cancel the pending trade from ' + reservation.name + ' first.');
+  const state = document.getElementById('f-trade-state').value;
+  if (old && old.status === 'pending' && !state) throw new Error('Choose Cancelled to release this pending trade.');
+  if (!state) {
+    if (data.status === 'traded') throw new Error('Complete a trade through the Trade section.');
+    return null;
+  }
+  if (state === 'cancelled') {
+    if (!old) throw new Error('There is no trade to cancel.');
+    data.trade = {...old, status: 'cancelled'};
+    return null;
+  }
+  if (!['stash','draft','active','hold'].includes(data.status)) throw new Error('Trade an owned or listed bag.');
+  const incomingId = document.getElementById('f-trade-incoming').value;
+  const incoming = items.find(i => i.id === incomingId);
+  if (!incoming || incomingId === id || incoming.status !== 'wishlist') throw new Error('Select a different bag from Wishlist.');
+  if (incoming.trade && incoming.trade.status === 'pending') throw new Error('Incoming bag already has a pending trade.');
+  if (items.some(i => i.id !== id && i.trade && i.trade.status === 'pending' && i.trade.incomingId === incomingId)) throw new Error('Incoming bag is already reserved for another trade.');
+  const money = k => {
+    const raw = document.getElementById('f-trade-' + k).value.trim();
+    const n = raw === '' ? 0 : Number(raw);
+    if (!Number.isFinite(n) || n < 0) throw new Error('Trade amounts must be zero or positive numbers.');
+    return Math.round(n * 100) / 100;
+  };
+  const date = document.getElementById('f-trade-date').value;
+  if (state === 'completed' && !date) throw new Error('Enter the completed trade date.');
+  const t = {id: old ? old.id : newId(), status: state, incomingId, date,
+    cashAdded: money('added'), cashReceived: money('received'), fees: money('fees'),
+    agreedValue: document.getElementById('f-trade-value').value === '' ? null : money('value'),
+    notes: document.getElementById('f-trade-notes').value.trim()};
+  data.trade = t;
+  if (state !== 'completed') return null;
+  const basis = costUSD(data);
+  t.outgoingCostUSD = basis;
+  t.incomingCostUSD = basis == null ? null : Math.max(0, Math.round((basis + t.cashAdded + t.fees - t.cashReceived) * 100) / 100);
+  data.status = 'traded';
+  return function() {
+    Object.assign(incoming, {status: 'stash', acquired: date, source: 'Trade', acquisitionTradeId: t.id,
+      cost: t.incomingCostUSD, costCurrency: 'USD', costUSD: null});
+  };
+}
+
 // ── STATUS CHANGE ──────────────────────────────────────────────────────────
 function applyStatusVisibility() {
   const st    = document.getElementById('f-status').value;
   const wish  = st === 'wishlist';
-  const stash = st === 'stash' || st === 'returned';
+  const stash = st === 'stash' || st === 'returned' || st === 'traded';
   const returned = st === 'returned';
   document.querySelectorAll('.sf-sale').forEach(function(el)     { el.style.display = (wish || stash) ? 'none' : ''; });
   document.querySelectorAll('.sf-purchase').forEach(function(el) { el.style.display = wish ? 'none' : ''; });
@@ -2549,8 +2655,8 @@ function printItem(id) {
   var st = item.status || 'draft';
   var price = item.soldPrice || item.price;
   var priceLabel, fmtPrice;
-  if (st === 'stash' || st === 'returned') {
-    priceLabel = 'Purchase Price';
+  if (st === 'stash' || st === 'returned' || st === 'traded') {
+    priceLabel = item.acquisitionTradeId ? 'Carried Cost (Trade)' : st === 'traded' ? 'Original Cost (Traded)' : 'Purchase Price';
     fmtPrice = item.cost ? fmtCost(item.cost, item.costCurrency) : '';
   } else if (st === 'wishlist') {
     priceLabel = 'Target Price';
@@ -2658,3 +2764,4 @@ function printItem(id) {
   </div>
 </body>
 </html>
+
